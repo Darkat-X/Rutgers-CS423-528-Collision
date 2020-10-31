@@ -16,15 +16,16 @@ public class QuadTree
     //the region of this node represent
     public Rect rect;
     //Prism in each tree
-    private List<Prism> objects = new List<Prism>();
+    public List<Prism> objects = new List<Prism>();
 
-    private QuadTree father;
+    public QuadTree father;
 
-    public QuadTree(Rect rect,int depth, QuadTree fa)
+    public QuadTree(Rect rect,int depth, QuadTree father)
     {
         this.rect = rect;
         this.depth = depth + 1;
         this.rect = rect;
+        this.father = father;
         objects = new List<Prism>();
     }
 

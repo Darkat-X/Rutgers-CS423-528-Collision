@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class PrismManager : MonoBehaviour
 {
-    public int speed = 0;
+    public float speed = 0;
     public int prismCount = 10;
     public float prismRegionRadiusXZ = 5;
     public float prismRegionRadiusY = 5;
@@ -13,7 +13,6 @@ public class PrismManager : MonoBehaviour
     public float maxPrismScaleY = 5;
     public GameObject regularPrismPrefab;
     public GameObject irregularPrismPrefab;
-    public QuadTree quadtree;
 
     private List<Prism> prisms = new List<Prism>();
     private List<GameObject> prismObjects = new List<GameObject>();
@@ -109,37 +108,195 @@ public class PrismManager : MonoBehaviour
     #region Incomplete Functions
 
     private IEnumerable<PrismCollision> PotentialCollisions()
-    {
-        // for (int i = 0; i < prisms.Count; i++) {
-        //     for (int j = i + 1; j < prisms.Count; j++) {
-        //         var checkPrisms = new PrismCollision();
-        //         checkPrisms.a = prisms[i];
-        //         checkPrisms.b = prisms[j];
-                
-        //         yield return checkPrisms;
-        //     }
-        // }
-        quadtree = new QuadTree(new Rect(0,0,10,10),0,null);
+    {                                              
+        QuadTree quadtree = new QuadTree(new Rect(0, 0, 10, 10), 0, null);
         for (int i = 0; i < prisms.Count; i++)
         {
             Debug.Log("1");
+            prisms[i].check = false;
             quadtree.Addprism(prisms[i]);
         }
 
-        yield break;
+        foreach (PrismCollision check in QuadtreeRecursion(quadtree))
+        {
+            yield return check;
+        }
     }
+    
 
     private bool CheckCollision(PrismCollision collision)
     {
+        
         var prismA = collision.a;
         var prismB = collision.b;
+        List<Vector3> points;
+        bool check = false;
 
-        
-        collision.penetrationDepthVectorAB = new Vector3(speed,0,speed);
-
+        //Minkowski Difference Computation
+        points = new List<Vector3>();
+        points.Clear();
+        foreach(var point1 in prismA.points)
+        {
+          foreach (var point2 in prismB.points)
+          {
+              var result = Vector3.zero;
+              result = point1 - point2;
+              points.Add(result);
+          }
+        }
+        //gjk
+        bool[] col = new bool[4];
+        for (int i = 1; i < col.Length; i++)
+        {
+            col[i] = false;
+        }
+        for (int i = 0; i < points.Count; i++)
+        {
+            if (points[i].x > 0 && points[i].z > 0)
+            {
+                col[0] = true;
+            }
+            if (points[i].x > 0 && points[i].z < 0)
+            {
+                col[1] = true;
+            }
+            if (points[i].x < 0 && points[i].z < 0)
+            {
+                col[2] = true;
+            }
+            if (points[i].x < 0 && points[i].z > 0)
+            {
+                col[3] = true;
+            }
+            if (points[i].x > 0 && points[i].z == 0)
+            {
+                col[0] = true;
+                col[1] = true;
+            }
+            if (points[i].x < 0 && points[i].z == 0)
+            {
+                col[2] = true;
+                col[3] = true;
+            }
+            if (points[i].x == 0 && points[i].z > 0)
+            {
+                col[0] = true;
+                col[3] = true;
+            }
+            if (points[i].x == 0 && points[i].z < 0)
+            {
+                col[1] = true;
+                col[2] = true;
+            }
+        }
+        int count = 0;
+        for (int i = 0; i < col.Length; i++)
+        {
+            if (col[i] == true)
+            {
+                count++;
+            }
+        }
+        if (count == 4)
+        {
+            check = true;
+        }
+        else
+        {
+            int far = 0;
+            for (int i = 0; i < points.Count - 2; i++)
+            {
+                if(points[far].sqrMagnitude < points[1].sqrMagnitude)
+                {
+                    far = i;
+                }
+            }
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                if (check)
+                {
+                    break;
+                }
+                for (int j = i + 1; j < points.Count; j++)
+                {
+                    if (i != far && j != far) {
+                        if (whichSide(points[far], points[i], points[j]) == whichSide(points[far], points[i], new Vector3(0, 0, 0))
+                        && whichSide(points[i], points[j], points[far]) == whichSide(points[i], points[j], new Vector3(0, 0, 0))
+                        && whichSide(points[j], points[far], points[i]) == whichSide(points[j], points[far], new Vector3(0, 0, 0)))
+                        {
+                            check = true;
+                            break;
+                        }
+                    }
+                } 
+            }
+        }
+        if(!check){
+            return false;
+        }
+        //epa
+        Vector3 speedV = new Vector3(0, 0, 0);
+        for (int i = 0; i < points.Count; i++)
+        {
+            for (int j = 0; j < points.Count; j++)
+            {
+                if (i != j)
+                {
+                    bool edge = true;
+                    for (int k = 0; k < points.Count; k++)
+                    {
+                        if (!(k == i || k == j))
+                        {
+                            if (whichSide(points[i], points[j], points[k]) != whichSide(points[i], points[j], new Vector3(0, 0, 0)))
+                            {
+                                edge = false;
+                            }
+                        }
+                    }
+                    if (edge && (((perpendicular(points[i], points[j]).sqrMagnitude < speedV.sqrMagnitude) || (speedV.x == 0 && speedV.y == 0 && speedV.z == 0))))
+                    {
+                        speedV = perpendicular(points[i], points[j]);
+                    }
+                }
+            }
+        }
+        collision.penetrationDepthVectorAB = new Vector3(speed * speedV.x, 0 , speed * speedV.z);
         return true;
     }
-    
+
+  private float PointToLine(Vector3 p, Vector3 a, Vector3 b)
+  {
+    var newVec = p - a;
+    var dir = b - a;
+    var tangent = Vector3.Cross(dir, Vector3.up).normalized;
+    var result = Vector3.Dot(newVec, tangent) / (newVec.magnitude) * newVec.magnitude;
+    return result;
+  }
+  private Vector3 PointToLineTangent(Vector3 p, Vector3 a, Vector3 b)
+  {
+    var newVec = p - a;
+    var dir = b - a;
+    var tangent = Vector3.Cross(dir, Vector3.up).normalized;
+
+    var result = Vector3.Dot(newVec, tangent) / (newVec.magnitude) * newVec.magnitude;
+
+    return tangent * result;
+  }
+
+  private int MinIndex(List<float> a)
+  {
+    float b = a[0];
+    int index = 0;
+    for(int i = 0; i < a.Count; i++)
+    {
+      if(b > a[i])
+      {
+        b = a[i];
+        index = i;
+      }     
+    }
+    return index;
+  }
     #endregion
 
     #region Private Functions
@@ -165,7 +322,103 @@ public class PrismManager : MonoBehaviour
 
         Debug.DrawLine(prismObjA.transform.position, prismObjA.transform.position + collision.penetrationDepthVectorAB, Color.cyan, UPDATE_RATE);
     }
-    
+
+    private IEnumerable<PrismCollision> QuadtreeRecursion(QuadTree quadtree)
+    {
+        if (quadtree.subtree != null)
+        {
+            Debug.Log("20");
+            foreach (PrismCollision check in QuadtreeRecursion(quadtree.subtree[0]))
+                yield return check;
+            foreach (PrismCollision check in QuadtreeRecursion(quadtree.subtree[1]))
+                yield return check;
+            foreach (PrismCollision check in QuadtreeRecursion(quadtree.subtree[2]))
+                yield return check;
+            foreach (PrismCollision check in QuadtreeRecursion(quadtree.subtree[3]))
+                yield return check;
+        }
+
+        if (quadtree.father != null)
+        {
+            for (int i = 0; i < quadtree.objects.Count; i++)
+            {
+                foreach (PrismCollision check in fatherRecursion(quadtree.father, quadtree.objects[i]))
+                    yield return check;
+            }
+        }
+        for (int i = 0; i < quadtree.objects.Count - 1; i++)
+        {
+            if (quadtree.objects[i].check == false)
+            {
+                for (int j = i + 1; j < quadtree.objects.Count; j++)
+                {
+                    if (quadtree.objects[i].prismObject.name != quadtree.objects[j].prismObject.name)
+                    {
+                        Debug.Log("30");
+                        var check = new PrismCollision();
+                        check.a = quadtree.objects[i];
+                        check.b = quadtree.objects[j];
+                        quadtree.objects[i].check = true;
+                        yield return check;
+                    }
+                }
+            }
+        }
+    }
+
+    private IEnumerable<PrismCollision> fatherRecursion(QuadTree quadFather, Prism obj)
+    {
+        if (quadFather.father != null)
+        {
+            foreach (PrismCollision check in fatherRecursion(quadFather.father, obj))
+                yield return check;
+        }
+        for (int i = 0; i < quadFather.objects.Count; i++)
+        {
+            if (quadFather.objects[i].check == false)
+            {
+                Debug.Log("50");
+                var check = new PrismCollision();
+                check.a = quadFather.objects[i];
+                check.b = obj;
+                yield return check;
+            }
+        }
+    }
+
+    public static Vector3 perpendicular(Vector3 a, Vector3 b)
+    {
+
+        Vector3 ab = b - a;
+        Vector3 ao = Vector3.zero - a;
+
+        float projection = Vector3.Dot(ab, ao) / ab.sqrMagnitude;
+        return a+ab * projection;
+    }
+
+    public static int whichSide(Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 ab = b - a;
+        Vector3 ac = c - a;
+        float cross = ab.x * ac.z - ab.z * ac.x;
+        return cross > 0 ? 1 : (cross < 0 ? -1 : 0);
+    }
+
+
+
+    private bool IntersectingZ(Prism a, Prism b)
+    {
+        if (a.max.z > b.min.z && a.min.z < b.max.z)
+        {
+            return true;
+        }
+        if (b.max.z > a.min.z && b.min.z < a.max.z)
+        {
+            return true;
+        }
+        return false;
+    }
+
     #endregion
 
     #region Visualization Functions
